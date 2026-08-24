@@ -7,6 +7,8 @@ on:
         description: Bun commit to build (empty = latest stable release)
         required: false
         default: ""
+  schedule:
+    - cron: '0 */6 * * *'  # каждые 6 часов проверяем новые релизы Bun
   release:
     types: [published]
 
@@ -18,6 +20,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    if: steps.check-built.outputs.skip != 'true'
     outputs:
       bun_version: ${{ steps.tag.outputs.version }}
       bun_sha256: ${{ steps.sha256.outputs.sha256 }}
@@ -63,6 +66,29 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=${TAG#v}" >> $GITHUB_OUTPUT
           echo "Using Bun tag: $TAG"
+
+      - name: Check if already built
+        id: check-built
+        if: github.event_name == 'schedule'
+        run: |
+          VERSION="${{ steps.tag.outputs.version }}"
+          # Check if release with this version already exists in this repo
+          EXISTING=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name == \"bun-penryn-$VERSION-\") | .tag_name" | head -1)
+          if [ -n "$EXISTING" ]; then
+            echo "Version $VERSION already built ($EXISTING), skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "New version $VERSION, will build"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip if already built
+        if: steps.check-built.outputs.skip == 'true'
+        run: |
+          echo "Skipping build - version already exists"
+          exit 0
 
       - name: Clone Bun
         run: |
