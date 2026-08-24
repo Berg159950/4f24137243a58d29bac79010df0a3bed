@@ -175,11 +175,15 @@ jobs:
 
       - name: Patch WebKit simdutf
         run: |
+          cd /tmp/bun-src
           WD="vendor/WebKit/Source/WTF/wtf/simdutf"
           [ -d "$WD" ] || WD="vendor/WebKit/Source/ThirdParty/simdutf"
           [ -d "$WD" ] || WD="src/simdutf_sys"
           echo "simdutf dir: $WD"
-          for f in $(grep -rl "SIMDUTF_TARGET_WESTMERE" "$WD" 2>/dev/null); do
+          [ -d "$WD" ] || { echo "ERROR: simdutf dir not found"; exit 1; }
+          FILES=$(grep -rl "SIMDUTF_TARGET_WESTMERE" "$WD" 2>/dev/null)
+          [ -n "$FILES" ] || { echo "ERROR: simdutf sources not found in $WD"; exit 1; }
+          for f in $FILES; do
             perl -0pi -e 's/#define SIMDUTF_IMPLEMENTATION_ICELAKE[^\n]*\\\n\s*\(\(SIMDUTF_IS_X86_64\) && \(SIMDUTF_COMPILER_SUPPORTS_VBMI2\)\)/#define SIMDUTF_IMPLEMENTATION_ICELAKE 0/' "$f"
             sed -i 's/#define SIMDUTF_IMPLEMENTATION_HASWELL (SIMDUTF_IS_X86_64)/#define SIMDUTF_IMPLEMENTATION_HASWELL 0/' "$f"
             sed -i 's/#define SIMDUTF_TARGET_WESTMERE SIMDUTF_TARGET_REGION("sse4.2,popcnt")/#define SIMDUTF_TARGET_WESTMERE SIMDUTF_TARGET_REGION("sse4.1")/' "$f"
