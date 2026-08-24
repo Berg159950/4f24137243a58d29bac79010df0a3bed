@@ -147,7 +147,10 @@ jobs:
           find . -name "CMakeLists.txt" -exec sed -i 's/target-cpu=nehalem/target-cpu=penryn/g' {} +
           bun -e "const fs=require('fs');let l=fs.readFileSync('scripts/build/deps/zlib.ts','utf8').split('\n');l.splice(78,22);fs.writeFileSync('scripts/build/deps/zlib.ts',l.join('\n'))"
           sed -i 's/"_avx2.c", "-mavx2"/"_avx2.c", "-msse4.1"/' scripts/build/deps/libwebp.ts
-          grep -rn --include="CMakeLists.txt" --include="*.ts" --include="*.rs" --exclude-dir=test --exclude-dir=.git "march=nehalem\|target-cpu=nehalem" . | grep -v "\.test\.ts:" | grep -v "// " && { echo "ERROR: Nehalem still present!"; exit 1; } || echo "All Nehalem references patched successfully"
+          grep -rl --include="*.ts" "nehalem" scripts/ test/ | while read f; do
+            sed -i 's/\bnehalem\b/penryn/g; s/\bNehalem\b/Penryn/g; s/\bNEHALEM\b/PENRYN/g' "$f"
+          done
+          grep -rn --include="CMakeLists.txt" --include="*.ts" --include="*.rs" --exclude-dir=test --exclude-dir=.git "march=nehalem\|target-cpu=nehalem" . && { echo "ERROR: Nehalem still present!"; exit 1; } || echo "All Nehalem references patched successfully"
 
       - name: Clone WebKit (required for --webkit=local)
         run: |
