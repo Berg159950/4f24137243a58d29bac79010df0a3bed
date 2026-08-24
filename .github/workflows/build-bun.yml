@@ -136,8 +136,8 @@ jobs:
         run: |
           cd /tmp/bun-src
           sed -i 's/-march=nehalem/-march=penryn/g' scripts/build/flags.ts
-          sed -i 's/flag: "-march=penryn"/flag: ["-march=penryn", "-mtune=penryn", "-mno-sse4.2", "-mno-popcnt", "-DHWY_DISABLED_TARGETS=3032"]/' scripts/build/flags.ts
-          sed -i 's|no SSE4.2/AVX, broadest compatibility|tuned for Penryn, no SSE4.2/POPCNT/AVX (Highway: SSE2/SSSE3 only)|' scripts/build/flags.ts
+          perl -0pi -e 's/export const globalFlags: Flag\[\] = \[/export const globalFlags: Flag[] = [\n  {\n    flag: ["-mno-sse4.2", "-mno-popcnt", "-DHWY_DISABLED_TARGETS=3032"],\n    when: c => c.x64,\n    desc: "Penryn baseline: no SSE4.2\/POPCNT, Highway SSE2\/SSSE3 only",\n  },/' scripts/build/flags.ts
+          grep -q 'HWY_DISABLED_TARGETS' scripts/build/flags.ts || { echo "ERROR: globalFlags patch failed"; exit 1; }
           sed -i 's/-Ctarget-cpu=nehalem/-Ctarget-cpu=penryn/g' scripts/build/rust.ts
           sed -i 's/"nehalem"/"penryn"/g' scripts/build/rust.ts
           sed -i 's/Nehalem/Penryn/g' scripts/verify-baseline.ts
