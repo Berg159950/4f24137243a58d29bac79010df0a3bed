@@ -12,6 +12,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: write
+
 env:
   BUN_COMMIT: ${{ github.event.inputs.bun_commit }}
   OPENCODE_REPO: Berg159950/f306f005c6bdc9490087007466ccf56f
@@ -82,11 +85,12 @@ jobs:
           sudo add-apt-repository -y "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-21 main"
           sudo apt-get update -qq
           sudo apt-get install -y -qq clang-21 lld-21
-          sudo ln -sf /usr/bin/clang-21 /usr/local/bin/clang
-          sudo ln -sf /usr/bin/clang++-21 /usr/local/bin/clang++
+          sudo ln -sf /usr/bin/clang-21 /usr/lib/ccache/clang
+          sudo ln -sf /usr/bin/clang++-21 /usr/lib/ccache/clang++
           sudo ln -sf /usr/bin/lld-21 /usr/local/bin/lld
           sudo ln -sf /usr/bin/llvm-ar-21 /usr/local/bin/llvm-ar
           sudo ln -sf /usr/bin/llvm-ranlib-21 /usr/local/bin/llvm-ranlib
+          which clang && clang --version | head -1
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
 
@@ -100,6 +104,9 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: bun-penryn-${{ needs.check-version.outputs.version }}
+          restore-keys: |
+            bun-penryn-
+          max-size: 3G
 
       - name: Setup Bun (for build script)
         uses: oven-sh/setup-bun@v2
