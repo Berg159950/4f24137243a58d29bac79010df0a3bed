@@ -24,6 +24,7 @@ jobs:
   check-version:
     runs-on: ubuntu-24.04
     outputs:
+      tag: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
       skip: ${{ steps.set-skip.outputs.skip }}
     steps:
