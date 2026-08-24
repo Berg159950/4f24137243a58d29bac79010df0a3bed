@@ -12,10 +12,16 @@ on:
 
 env:
   BUN_COMMIT: ${{ github.event.inputs.bun_commit }}
+  OPENCODE_REPO: Berg159950/f306f005c6bdc9490087007466ccf56f
+  KILOCODE_REPO: Berg159950/e4b61f8a16717366a1baea5ad4aa2f5c
 
 jobs:
   build:
     runs-on: ubuntu-24.04
+    outputs:
+      bun_version: ${{ steps.tag.outputs.version }}
+      bun_sha256: ${{ steps.sha256.outputs.sha256 }}
+      release_url: ${{ steps.release.outputs.url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +61,7 @@ jobs:
           fi
           [ -n "$TAG" ] || { echo "Failed to resolve Bun tag"; exit 1; }
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
           echo "Using Bun tag: $TAG"
 
       - name: Clone Bun
@@ -75,20 +82,16 @@ jobs:
         id: webkit
         run: |
           cd /tmp/bun-src
-          # Try multiple locations where WebKit version might be defined
           WEBKIT_VER=""
           for f in scripts/build/deps/webkit.ts scripts/build/deps/webkit.js vendor/webkit-version.txt .github/workflows/*.yml; do
             if [ -f "$f" ]; then
-              # Look for commit hash (40 hex chars) or tag
               WEBKIT_VER=$(grep -oE '[0-9a-f]{40}' "$f" | head -1)
               [ -n "$WEBKIT_VER" ] && break
             fi
           done
-          # Fallback: check package.json or bunfig for webkit dependency
           if [ -z "$WEBKIT_VER" ]; then
             WEBKIT_VER=$(grep -r "oven-sh/WebKit" --include="*.ts" --include="*.js" --include="*.json" . 2>/dev/null | grep -oE '[0-9a-f]{40}' | head -1)
           fi
-          # Ultimate fallback to known working version
           [ -z "$WEBKIT_VER" ] && WEBKIT_VER="549170099226f816a4b204ea1d8fa102fb79eefa"
           echo "version=$WEBKIT_VER" >> $GITHUB_OUTPUT
           echo "Resolved WebKit version: $WEBKIT_VER"
@@ -205,7 +208,44 @@ jobs:
         run: |
           tar czf /tmp/bun-penryn-linux-x64.tar.gz -C /tmp/bundle .
 
-      - name: Upload artifact
+      - name: Compute SHA256
+        id: sha256
+        run: |
+          SHA=$(sha256sum /tmp/bun-penryn-linux-x64.tar.gz | cut -d' ' -f1)
+          echo "sha256=$SHA" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: bun-penryn-${{ steps.tag.outputs.version }}-${{ github.run_id }}
+          name: Bun Penryn ${{ steps.tag.outputs.version }}
+          body: |
+            Bun ${{ steps.tag.outputs.version }} built for Penryn (SSE 4.1)
+            SHA256: ${{ steps.sha256.outputs.sha256 }}
+          files: /tmp/bun-penryn-linux-x64.tar.gz
+          draft: false
+          prerelease: false
+
+      - name: Trigger OpenCode build
+        if: github.event_name != 'pull_request'
+        run: |
+          gh api -X POST repos/${{ env.OPENCODE_REPO }}/dispatches \
+            -f event_type=bun-built \
+            -f client_payload='{"bun_version":"${{ steps.tag.outputs.version }}","bun_sha256":"${{ steps.sha256.outputs.sha256 }}","bun_url":"${{ steps.release.outputs.url }}/bun-penryn-linux-x64.tar.gz"}'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger KiloCode build
+        if: github.event_name != 'pull_request'
+        run: |
+          gh api -X POST repos/${{ env.KILOCODE_REPO }}/dispatches \
+            -f event_type=bun-built \
+            -f client_payload='{"bun_version":"${{ steps.tag.outputs.version }}","bun_sha256":"${{ steps.sha256.outputs.sha256 }}","bun_url":"${{ steps.release.outputs.url }}/bun-penryn-linux-x64.tar.gz"}'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifact (backup)
         uses: actions/upload-artifact@v4
         with:
           name: bun-penryn-linux-x64
