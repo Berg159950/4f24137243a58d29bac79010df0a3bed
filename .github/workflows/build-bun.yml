@@ -8,7 +8,7 @@ on:
         required: false
         default: ""
   schedule:
-    - cron: '0 */6 * * *'  # каждые 6 часов проверяем новые релизы Bun
+    - cron: '0 3 * * *'  # каждый день в 03:00 UTC проверяем новые релизы Bun
   release:
     types: [published]
 
@@ -18,11 +18,51 @@ env:
   KILOCODE_REPO: Berg159950/e4b61f8a16717366a1baea5ad4aa2f5c
 
 jobs:
-  build:
+  check-version:
     runs-on: ubuntu-24.04
-    if: steps.check-built.outputs.skip != 'true'
     outputs:
-      bun_version: ${{ steps.tag.outputs.version }}
+      version: ${{ steps.tag.outputs.version }}
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Resolve Bun tag
+        id: tag
+        run: |
+          if [ -n "$BUN_COMMIT" ]; then
+            TAG="$BUN_COMMIT"
+          else
+            TAG=$(curl -fsSL https://api.github.com/repos/oven-sh/bun/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+' | head -1)
+          fi
+          [ -n "$TAG" ] || { echo "Failed to resolve Bun tag"; exit 1; }
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
+          echo "Using Bun tag: $TAG"
+
+      - name: Check if already built (schedule only)
+        id: check
+        if: github.event_name == 'schedule'
+        run: |
+          VERSION="${{ steps.tag.outputs.version }}"
+          EXISTING=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name == \"bun-penryn-$VERSION-\") | .tag_name" | head -1)
+          if [ -n "$EXISTING" ]; then
+            echo "Version $VERSION already built ($EXISTING), skipping"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "New version $VERSION, will build"
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Force build for non-schedule
+        if: github.event_name != 'schedule'
+        run: echo "skip=false" >> $GITHUB_OUTPUT
+
+  build:
+    needs: check-version
+    if: needs.check-version.outputs.skip == 'false'
+    runs-on: ubuntu-24.04
+    outputs:
+      bun_version: ${{ needs.check-version.outputs.version }}
       bun_sha256: ${{ steps.sha256.outputs.sha256 }}
       release_url: ${{ steps.release.outputs.url }}
     steps:
@@ -47,48 +87,12 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: bun-penryn-${{ env.BUN_COMMIT }}
+          key: bun-penryn-${{ needs.check-version.outputs.version }}
 
       - name: Setup Bun (for build script)
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-
-      - name: Resolve Bun tag
-        id: tag
-        run: |
-          if [ -n "$BUN_COMMIT" ]; then
-            TAG="$BUN_COMMIT"
-          else
-            TAG=$(curl -fsSL https://api.github.com/repos/oven-sh/bun/releases/latest | grep -oP '"tag_name":\s*"\K[^"]+' | head -1)
-          fi
-          [ -n "$TAG" ] || { echo "Failed to resolve Bun tag"; exit 1; }
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
-          echo "Using Bun tag: $TAG"
-
-      - name: Check if already built
-        id: check-built
-        if: github.event_name == 'schedule'
-        run: |
-          VERSION="${{ steps.tag.outputs.version }}"
-          # Check if release with this version already exists in this repo
-          EXISTING=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name == \"bun-penryn-$VERSION-\") | .tag_name" | head -1)
-          if [ -n "$EXISTING" ]; then
-            echo "Version $VERSION already built ($EXISTING), skipping"
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "New version $VERSION, will build"
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Skip if already built
-        if: steps.check-built.outputs.skip == 'true'
-        run: |
-          echo "Skipping build - version already exists"
-          exit 0
 
       - name: Clone Bun
         run: |
@@ -99,7 +103,7 @@ jobs:
           [ -d /tmp/bun-src/.git ] || exit 1
           cd /tmp/bun-src
           for i in 1 2 3; do
-            git fetch --depth 1 origin ${{ steps.tag.outputs.tag }} && break
+            git fetch --depth 1 origin ${{ needs.check-version.outputs.tag }} && break
             [ $i -lt 3 ] && sleep 10
           done
           git checkout FETCH_HEAD
@@ -244,10 +248,10 @@ jobs:
         id: release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: bun-penryn-${{ steps.tag.outputs.version }}-${{ github.run_id }}
-          name: Bun Penryn ${{ steps.tag.outputs.version }}
+          tag_name: bun-penryn-${{ needs.check-version.outputs.version }}-${{ github.run_id }}
+          name: Bun Penryn ${{ needs.check-version.outputs.version }}
           body: |
-            Bun ${{ steps.tag.outputs.version }} built for Penryn (SSE 4.1)
+            Bun ${{ needs.check-version.outputs.version }} built for Penryn (SSE 4.1)
             SHA256: ${{ steps.sha256.outputs.sha256 }}
           files: /tmp/bun-penryn-linux-x64.tar.gz
           draft: false
@@ -258,7 +262,7 @@ jobs:
         run: |
           gh api -X POST repos/${{ env.OPENCODE_REPO }}/dispatches \
             -f event_type=bun-built \
-            -f client_payload='{"bun_version":"${{ steps.tag.outputs.version }}","bun_sha256":"${{ steps.sha256.outputs.sha256 }}","bun_url":"${{ steps.release.outputs.url }}/bun-penryn-linux-x64.tar.gz"}'
+            -f client_payload='{"bun_version":"${{ needs.check-version.outputs.version }}","bun_sha256":"${{ steps.sha256.outputs.sha256 }}","bun_url":"${{ steps.release.outputs.url }}/bun-penryn-linux-x64.tar.gz"}'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -267,7 +271,7 @@ jobs:
         run: |
           gh api -X POST repos/${{ env.KILOCODE_REPO }}/dispatches \
             -f event_type=bun-built \
-            -f client_payload='{"bun_version":"${{ steps.tag.outputs.version }}","bun_sha256":"${{ steps.sha256.outputs.sha256 }}","bun_url":"${{ steps.release.outputs.url }}/bun-penryn-linux-x64.tar.gz"}'
+            -f client_payload='{"bun_version":"${{ needs.check-version.outputs.version }}","bun_sha256":"${{ steps.sha256.outputs.sha256 }}","bun_url":"${{ steps.release.outputs.url }}/bun-penryn-linux-x64.tar.gz"}'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
