@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.tag.outputs.version }}
-      skip: ${{ steps.check.outputs.skip }}
+      skip: ${{ steps.set-skip.outputs.skip }}
     steps:
       - name: Resolve Bun tag
         id: tag
@@ -53,9 +53,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Force build for non-schedule
-        if: github.event_name != 'schedule'
-        run: echo "skip=false" >> $GITHUB_OUTPUT
+      - name: Set skip output
+        id: set-skip
+        run: |
+          if [ "${{ github.event_name }}" == "schedule" ]; then
+            # skip already set by check step
+            echo "skip=${{ steps.check.outputs.skip }}" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
 
   build:
     needs: check-version
