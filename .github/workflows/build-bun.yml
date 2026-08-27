@@ -185,41 +185,21 @@ jobs:
           done
           grep -rn --include="CMakeLists.txt" --include="*.ts" --include="*.rs" --exclude-dir=test --exclude-dir=.git "march=nehalem\|target-cpu=nehalem" . && { echo "ERROR: Nehalem still present!"; exit 1; } || echo "All Nehalem references patched successfully"
 
-      - name: Restore WebKit cache
-        id: webkit-cache
-        uses: actions/cache@v4
-        with:
-          path: /tmp/webkit-cache
-          key: webkit-${{ steps.webkit.outputs.version }}
-
       - name: Clone WebKit (required for --webkit=local)
         run: |
+          rm -rf /tmp/bun-src/vendor/WebKit
           mkdir -p /tmp/bun-src/vendor
-          if [ -f /tmp/webkit-cache/WebKit.tar ] && [ -d /tmp/webkit-cache/.git ]; then
-            echo "WebKit restored from cache"
-            cp -r /tmp/webkit-cache /tmp/bun-src/vendor/WebKit
-            cd /tmp/bun-src/vendor/WebKit
-            for i in 1 2 3; do
-              git fetch --depth 1 origin ${{ steps.webkit.outputs.version }} && break
-              [ $i -lt 3 ] && sleep 10
-            done
-            git checkout FETCH_HEAD 2>/dev/null || true
-          else
-            for i in 1 2 3; do
-              git clone --depth 1 https://github.com/oven-sh/WebKit.git /tmp/bun-src/vendor/WebKit && break
-              [ $i -lt 3 ] && sleep 10
-            done
-            [ -d /tmp/bun-src/vendor/WebKit/.git ] || exit 1
-            cd /tmp/bun-src/vendor/WebKit
-            for i in 1 2 3; do
-              git fetch --depth 1 origin ${{ steps.webkit.outputs.version }} && break
-              [ $i -lt 3 ] && sleep 10
-            done
-            git checkout FETCH_HEAD
-            mkdir -p /tmp/webkit-cache
-            cp -r /tmp/bun-src/vendor/WebKit/.git /tmp/webkit-cache/.git 2>/dev/null || true
-            tar cf /tmp/webkit-cache/WebKit.tar -C /tmp/bun-src/vendor WebKit 2>/dev/null || true
-          fi
+          for i in 1 2 3; do
+            git clone --depth 1 https://github.com/oven-sh/WebKit.git /tmp/bun-src/vendor/WebKit && break
+            [ $i -lt 3 ] && sleep 10
+          done
+          [ -d /tmp/bun-src/vendor/WebKit/.git ] || exit 1
+          cd /tmp/bun-src/vendor/WebKit
+          for i in 1 2 3; do
+            git fetch --depth 1 origin ${{ steps.webkit.outputs.version }} && break
+            [ $i -lt 3 ] && sleep 10
+          done
+          git checkout FETCH_HEAD
 
       - name: Patch WebKit simdutf
         run: |
