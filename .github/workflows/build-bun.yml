@@ -38,15 +38,18 @@ jobs:
           fi
           [ -n "$TAG" ] || { echo "Failed to resolve Bun tag"; exit 1; }
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "version=${TAG#v}" >> $GITHUB_OUTPUT
-          echo "Using Bun tag: $TAG"
+          # Bun tags are bun-vX.Y.Z -> version X.Y.Z
+          VER="${TAG#bun-v}"
+          VER="${VER#v}"
+          echo "version=$VER" >> $GITHUB_OUTPUT
+          echo "Using Bun tag: $TAG -> version $VER"
 
       - name: Check if already built (schedule only)
         id: check
         if: github.event_name == 'schedule'
         run: |
           VERSION="${{ steps.tag.outputs.version }}"
-          EXISTING=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name == \"bun-penryn-$VERSION-\") | .tag_name" | head -1)
+          EXISTING=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name | contains(\"bun-penryn-\") and contains(\"$VERSION\")) | .tag_name" | head -1)
           if [ -n "$EXISTING" ]; then
             echo "Version $VERSION already built ($EXISTING), skipping"
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -325,9 +328,9 @@ jobs:
             echo "Using fresh build: $VERSION"
           else
             echo "Build was skipped, trying to find existing release..."
-            EXISTING=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name | startswith(\"bun-penryn-$VERSION-\")) | .assets[0].browser_download_url" | head -1)
+            EXISTING=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name | contains(\"bun-penryn-\") and contains(\"$VERSION\")) | .assets[0].browser_download_url" | head -1)
             if [ -n "$EXISTING" ]; then
-              SHA=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name | startswith(\"bun-penryn-$VERSION-\")) | .body" | grep -oE '[a-f0-9]{64}' | head -1)
+              SHA=$(gh api repos/${{ github.repository }}/releases --jq ".[] | select(.tag_name | contains(\"bun-penryn-\") and contains(\"$VERSION\")) | .body" | grep -oE '[a-f0-9]{64}' | head -1)
               echo "url=$EXISTING" >> $GITHUB_OUTPUT
               echo "sha256=$SHA" >> $GITHUB_OUTPUT
               echo "Reusing existing release: $EXISTING"
